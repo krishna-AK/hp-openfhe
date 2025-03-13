@@ -1,76 +1,70 @@
-#include "model.hpp"
+#include "fhe_inference.hpp"
+#include <openfhe.h>
 #include <iostream>
-#include <fstream>
-#include <cxxopts.hpp>
+#include <string>
 
-// Function to parse command line arguments
-cxxopts::ParseResult parse_arguments(int argc, char* argv[]) {
-    try {
-        cxxopts::Options options("house_price_prediction", "House price prediction using FHE");
-        
-        options.add_options()
-            ("s,sample", "Path to input ciphertext", cxxopts::value<std::string>())
-            ("c,cc", "Path to crypto context", cxxopts::value<std::string>())
-            ("p,key_pub", "Path to public key", cxxopts::value<std::string>())
-            ("m,key_mult", "Path to multiplication key", cxxopts::value<std::string>())
-            ("r,key_rot", "Path to rotation key", cxxopts::value<std::string>())
-            ("o,output", "Path for output result", cxxopts::value<std::string>())
-            ("h,help", "Print help");
-            
-        auto result = options.parse(argc, argv);
-        
-        if (result.count("help")) {
-            std::cout << options.help() << std::endl;
-            exit(0);
-        }
-        
-        return result;
-    }
-    catch (const cxxopts::OptionException& e) {
-        std::cout << "Error parsing options: " << e.what() << std::endl;
-        exit(1);
-    }
+using namespace lbcrypto;
+
+Ciphertext<DCRTPoly> solve(const Ciphertext<DCRTPoly>& input, const CryptoContext<DCRTPoly>& context, const PublicKey<DCRTPoly>& pub_key) {
+    // Initialize FHE inference
+    FHEInference fhe;
+    fhe.setupFHE(3);  // Set multiplicative depth
+    
+    // Load model weights
+    fhe.loadModel("fhe_model_params.pth");
+    
+    // Perform inference
+    return fhe.inference(input);
 }
 
 int main(int argc, char* argv[]) {
-    auto args = parse_arguments(argc, argv);
-    
     try {
-        // Create predictor instance
-        HousePricePredictor predictor;
-        
-        // Initialize with model weights and crypto context
-        std::cout << "Initializing predictor..." << std::endl;
-        predictor.Initialize("model_weights.json", args["cc"].as<std::string>());
-        
-        // Load keys
-        std::cout << "Loading keys..." << std::endl;
-        predictor.LoadKeys(
-            args["key_pub"].as<std::string>(),
-            args["key_mult"].as<std::string>(),
-            args["key_rot"].as<std::string>()
-        );
-        
-        // Load input ciphertext
-        std::cout << "Loading input ciphertext..." << std::endl;
-        std::ifstream input_file(args["sample"].as<std::string>(), std::ios::binary);
-        if (!input_file.is_open()) {
-            throw std::runtime_error("Could not open input file");
+        // Parse command line arguments
+        if (argc != 7) {
+            std::cerr << "Usage: " << argv[0] << " --key_pub <key_pub> --key_mult <key_mult> --key_rot <key_rot> --cc <cc> --sample <sample> --output <output>" << std::endl;
+            return 1;
         }
-        
-        Ciphertext<DCRTPoly> encrypted_input;
-        Serial::Deserialize(encrypted_input, input_file, SerType::BINARY);
-        input_file.close();
-        
-        // Make prediction
-        std::cout << "Making prediction..." << std::endl;
-        auto result = predictor.Predict(encrypted_input);
-        
+
+        // Load crypto context
+        CryptoContext<DCRTPoly> context;
+        if (!DeserializeCryptoContext(argv[4], context, BINARY)) {
+            throw std::runtime_error("Failed to load crypto context");
+        }
+
+        // Load public key
+        PublicKey<DCRTPoly> pub_key;
+        if (!DeserializePublicKey(argv[1], pub_key, BINARY)) {
+            throw std::runtime_error("Failed to load public key");
+        }
+
+        // Load evaluation keys
+        if (!context->DeserializeEvalMultKey(argv[2], BINARY)) {
+            throw std::runtime_error("Failed to load evaluation multiplication key");
+        }
+        if (!context->DeserializeEvalAutomorphismKey(argv[3], BINARY)) {
+            throw std::runtime_error("Failed to load evaluation rotation key");
+        }
+
+        // Load input ciphertext
+        Ciphertext<DCRTPoly> input;
+        if (!DeserializeCiphertext(argv[5], input, BINARY)) {
+            throw std::runtime_error("Failed to load input ciphertext");
+        }
+
+        // Enable required features
+        context->Enable(PKE);
+        context->Enable(KEYSWITCH);
+        context->Enable(LEVELEDSHE);
+        context->Enable(ADVANCEDSHE);
+
+        // Perform inference
+        Ciphertext<DCRTPoly> result = solve(input, context, pub_key);
+
         // Save result
-        std::cout << "Saving result..." << std::endl;
-        predictor.SaveResult(result, args["output"].as<std::string>());
-        
-        std::cout << "Prediction completed successfully!" << std::endl;
+        if (!SerializeToFile(argv[6], result, BINARY)) {
+            throw std::runtime_error("Failed to save result");
+        }
+
         return 0;
     }
     catch (const std::exception& e) {
