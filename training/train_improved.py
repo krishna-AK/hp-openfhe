@@ -56,21 +56,28 @@ def prepare_data(X, y, scaler=None):
     return X, y, None  # No scaler needed
 
 def train_model(X, y, X_val, y_val, input_dim):
-    # Initialize model and optimizer with larger capacity
-    model = FHECompatibleNN(input_dim=input_dim, hidden_dim=256)
+    # Initialize model with appropriate hidden dimension
+    model = FHECompatibleNN(input_dim=input_dim, hidden_dim=16)
     
-    # Initialize final layer bias to the mean of the targets
-    y_mean = torch.mean(y)
-    model.layer2.bias.data.fill_(y_mean)
+    # Use a learning rate appropriate for the scale of house prices
+    optimizer = optim.Adam(model.parameters(), lr=0.1, weight_decay=0.0001)
     
-    # Do not override act1 coefficients; allow them to be learned (initially [0.0, 1.0, 0.01] or updated in new activation)
+    # Use pure MSE loss for house price prediction
+    criterion = nn.MSELoss()  # Pure MSE loss is better for regression
     
-    optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=0.0)  # Higher lr, no weight decay
-    criterion = CustomLoss(alpha=1.0)  # Pure MSE loss
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=10, verbose=True)
+    # Use a more patient scheduler
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='min', factor=0.5, patience=30, verbose=True
+    )
     
-    # Training loop
-    n_epochs = 300
+    # Training loop with more epochs
+    n_epochs = 1000
+    best_r2 = -float('inf')
+    best_model = None
+    early_stop_patience = 50
+    early_stop_counter = 0
+    best_val_loss = float('inf')
+    
     for epoch in range(n_epochs):
         model.train()
         optimizer.zero_grad()
@@ -81,7 +88,8 @@ def train_model(X, y, X_val, y_val, input_dim):
         
         # Backward pass and optimize
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)  
+        # Use a moderate gradient clipping threshold
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
         optimizer.step()
         
         # Validation
@@ -90,6 +98,22 @@ def train_model(X, y, X_val, y_val, input_dim):
             val_outputs = model(X_val)
             val_loss = criterion(val_outputs, y_val)
             r2_val = r2_score_torch(y_val, val_outputs)
+            
+            # Save the best model based on R² score
+            if r2_val > best_r2:
+                best_r2 = r2_val
+                best_model = copy.deepcopy(model)
+            
+            # Early stopping based on validation loss
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                early_stop_counter = 0
+            else:
+                early_stop_counter += 1
+                
+            if early_stop_counter >= early_stop_patience:
+                print(f"Early stopping at epoch {epoch}")
+                break
             
             if epoch % 10 == 0:
                 print(f'Epoch {epoch}: Train Loss: {loss.item():.4f}, Val Loss: {val_loss.item():.4f}, R² Score: {r2_val:.4f}')
@@ -102,7 +126,8 @@ def train_model(X, y, X_val, y_val, input_dim):
             
             scheduler.step(val_loss)
     
-    return model
+    # Return the best model based on validation R² score
+    return best_model if best_model is not None else model
 
 def plot_training_history(train_losses, val_losses):
     """Plot training and validation losses"""
@@ -154,12 +179,24 @@ def save_model(model_data, output_dir='../app/'):
 
 def save_model_for_fhe(model):
     """Save model parameters in FHE-compatible format."""
-    model_params = convert_to_fhe(model)
-    
-    # Save model parameters
-    with open('../app/fhe_model_params.json', 'w') as f:
-        json.dump(model_params, f, indent=4)
-    print("Model parameters saved to ../app/fhe_model_params.json")
+    try:
+        model_params = convert_to_fhe(model)
+        
+        # Save model parameters
+        with open('../app/fhe_model_params.json', 'w') as f:
+            json.dump(model_params, f, indent=4)
+        print("Model parameters saved to ../app/fhe_model_params.json")
+        
+        # Print model architecture summary
+        print("\nModel Architecture Summary:")
+        print(f"Input dimension: {model.input_dim}")
+        print(f"Hidden dimension: {model.hidden_dim}")
+        print(f"Activation: Polynomial (degree {model.act1.degree})")
+        print(f"Polynomial coefficients: {model.act1.coefficients.data.tolist()}")
+        
+    except Exception as e:
+        print(f"Error saving model: {str(e)}")
+        raise
 
 def load_data():
     """Load data directly from CSV files"""
@@ -169,7 +206,7 @@ def load_data():
         y = pd.read_csv('data/y_train.csv')
         return X.values, y.values.flatten()
     except FileNotFoundError as e:
-        print(f"Error: Could not find data files in 'data' directory.")
+        print(f"Error: Could not find data files in '../data' directory.")
         raise e
 
 def r2_score_torch(y_true, y_pred):
@@ -198,33 +235,15 @@ def main():
         X_val, y_val, _ = prepare_data(X_val, y_val)
         X_test, y_test, _ = prepare_data(X_test, y_test)
         
-        # Repeated training runs until improvement
-        print("\nTraining model repeatedly until accuracy improves...")
-        best_r2 = -float('inf')
-        best_model = None
-        max_runs = 5
-        target_threshold = 0.0  # target validation R² (e.g., > 0 indicates improvement over mean predictor)
-
-        for run in range(max_runs):
-            print(f"\n--- Training Run {run+1} ---")
-            model = train_model(X_train, y_train, X_val, y_val, input_dim=X_train.shape[1])
-            model.eval()
-            with torch.no_grad():
-                val_outputs = model(X_val)
-                r2_val = r2_score_torch(y_val, val_outputs)
-            print(f"Validation R² for Run {run+1}: {r2_val:.4f}")
-            if r2_val > best_r2:
-                best_r2 = r2_val
-                best_model = model
-            if best_r2 >= target_threshold:
-                print("Achieved target validation R²!\n")
-                break
+        # Train the model
+        print("\nTraining model...")
+        model = train_model(X_train, y_train, X_val, y_val, input_dim=X_train.shape[1])
         
-        # Evaluate best model on test set
-        print("\nEvaluating best model on test data...")
-        best_model.eval()
+        # Evaluate model on test set
+        print("\nEvaluating model on test data...")
+        model.eval()
         with torch.no_grad():
-            y_pred = best_model(X_test).numpy().flatten()
+            y_pred = model(X_test).numpy().flatten()
             mse = mean_squared_error(y_test.numpy(), y_pred)
             mae = mean_absolute_error(y_test.numpy(), y_pred)
             r2 = r2_score(y_test.numpy(), y_pred)
@@ -235,7 +254,7 @@ def main():
         
         # Save model in FHE-compatible format
         print("\nSaving model in FHE-compatible format...")
-        save_model_for_fhe(best_model)
+        save_model_for_fhe(model)
         
     except Exception as e:
         print(f"An error occurred: {str(e)}")

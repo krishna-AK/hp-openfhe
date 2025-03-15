@@ -89,18 +89,23 @@ class FHEInference:
             temp = self.polynomial_activation(temp, self.act1_coeffs)
             layer1_outputs.append(temp)
         
-        # Combine layer 1 outputs
-        layer1_output = layer1_outputs[0]
-        for output in layer1_outputs[1:]:
-            layer1_output = self.context.EvalAdd(layer1_output, output)
-        
         # Second layer: Linear transformation (single output)
-        # Linear transformation
-        weight_plain = self.context.MakeCKKSPackedPlaintext(self.layer2_weights[0])
-        final_output = self.context.EvalMult(layer1_output, weight_plain)
+        final_output = None
         
-        # Sum all elements
-        final_output = self.sum_elements(final_output, len(self.layer2_weights[0]))
+        # Process each neuron in the hidden layer
+        for i, output in enumerate(layer1_outputs):
+            # Get the weight for this neuron
+            weight = self.layer2_weights[0][i]
+            weight_plain = self.context.MakeCKKSPackedPlaintext([weight])
+            
+            # Multiply the neuron output by its weight
+            weighted_output = self.context.EvalMult(output, weight_plain)
+            
+            # Add to the final output
+            if final_output is None:
+                final_output = weighted_output
+            else:
+                final_output = self.context.EvalAdd(final_output, weighted_output)
         
         # Add bias
         bias_plain = self.context.MakeCKKSPackedPlaintext([self.layer2_bias[0]])
