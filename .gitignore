@@ -48,3 +48,5 @@ ENV/
 
 # exclude binaries
 *.bin
+app/sample
+app/fhe_model_params.json
