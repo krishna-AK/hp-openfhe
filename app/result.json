@@ -1,0 +1,1 @@
+{"compilation_error": null, "testcases": [{"scheme": "CKKS", "runs": [{"result": [-11.199695239182336], "expected_output": [91100.0], "time": 66.28269934654236}]}]}
