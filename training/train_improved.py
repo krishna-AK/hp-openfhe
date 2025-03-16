@@ -57,10 +57,10 @@ def prepare_data(X, y, scaler=None):
 
 def train_model(X, y, X_val, y_val, input_dim):
     # Initialize model with appropriate hidden dimension
-    model = FHECompatibleNN(input_dim=input_dim, hidden_dim=16)
+    model = FHECompatibleNN(input_dim=input_dim, hidden_dim=8, poly_degree=2)
     
     # Use a learning rate appropriate for the scale of house prices
-    optimizer = optim.Adam(model.parameters(), lr=0.1, weight_decay=0.0001)
+    optimizer = optim.Adam(model.parameters(), lr=0.01, weight_decay=0.0001)
     
     # Use pure MSE loss for house price prediction
     criterion = nn.MSELoss()  # Pure MSE loss is better for regression
@@ -71,7 +71,7 @@ def train_model(X, y, X_val, y_val, input_dim):
     )
     
     # Training loop with more epochs
-    n_epochs = 1000
+    n_epochs = 2000
     best_r2 = -float('inf')
     best_model = None
     early_stop_patience = 50
@@ -104,16 +104,16 @@ def train_model(X, y, X_val, y_val, input_dim):
                 best_r2 = r2_val
                 best_model = copy.deepcopy(model)
             
-            # Early stopping based on validation loss
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                early_stop_counter = 0
-            else:
-                early_stop_counter += 1
+            # # Early stopping based on validation loss
+            # if val_loss < best_val_loss:
+            #     best_val_loss = val_loss
+            #     early_stop_counter = 0
+            # else:
+            #     early_stop_counter += 1
                 
-            if early_stop_counter >= early_stop_patience:
-                print(f"Early stopping at epoch {epoch}")
-                break
+            # if early_stop_counter >= early_stop_patience:
+            #     print(f"Early stopping at epoch {epoch}")
+            #     break
             
             if epoch % 10 == 0:
                 print(f'Epoch {epoch}: Train Loss: {loss.item():.4f}, Val Loss: {val_loss.item():.4f}, R² Score: {r2_val:.4f}')
@@ -139,43 +139,43 @@ def plot_training_history(train_losses, val_losses):
     plt.ylabel('Loss')
     plt.legend()
     plt.grid(True)
-    plt.savefig('../app/training_history.png')
+    plt.savefig('app/training_history.png')
     plt.close()
 
-def save_model(model_data, output_dir='../app/'):
-    """Save model and parameters"""
-    os.makedirs(output_dir, exist_ok=True)
+# def save_model(model_data, output_dir='app/'):
+#     """Save model and parameters"""
+#     os.makedirs(output_dir, exist_ok=True)
     
-    # Save metrics
-    metrics = {
-        'mse': float(model_data['mse']),
-        'mae': float(model_data['mae']),
-        'r2': float(model_data['r2'])
-    }
+#     # Save metrics
+#     metrics = {
+#         'mse': float(model_data['mse']),
+#         'mae': float(model_data['mae']),
+#         'r2': float(model_data['r2'])
+#     }
     
-    with open(os.path.join(output_dir, 'model_metrics.json'), 'w') as f:
-        json.dump(metrics, f, indent=4)
+#     with open(os.path.join(output_dir, 'model_metrics.json'), 'w') as f:
+#         json.dump(metrics, f, indent=4)
     
-    # Save model state
-    torch.save(model_data['model'].state_dict(), os.path.join(output_dir, 'model.pt'))
+#     # Save model state
+#     torch.save(model_data['model'].state_dict(), os.path.join(output_dir, 'model.pt'))
     
-    # Save scaler parameters
-    scaler_params = {
-        'mean': model_data['scaler'].mean_.tolist(),
-        'scale': model_data['scaler'].scale_.tolist()
-    }
+#     # Save scaler parameters
+#     scaler_params = {
+#         'mean': model_data['scaler'].mean_.tolist(),
+#         'scale': model_data['scaler'].scale_.tolist()
+#     }
     
-    with open(os.path.join(output_dir, 'scaler_params.json'), 'w') as f:
-        json.dump(scaler_params, f, indent=4)
+#     with open(os.path.join(output_dir, 'scaler_params.json'), 'w') as f:
+#         json.dump(scaler_params, f, indent=4)
     
-    # Plot training history
-    plot_training_history(model_data['train_losses'], model_data['val_losses'])
+#     # Plot training history
+#     plot_training_history(model_data['train_losses'], model_data['val_losses'])
     
-    print(f"\nModel and parameters saved to {output_dir}")
-    print("\nModel Performance:")
-    print(f"MSE: {metrics['mse']:.4f}")
-    print(f"MAE: {metrics['mae']:.4f}")
-    print(f"R² Score: {metrics['r2']:.4f}")
+#     print(f"\nModel and parameters saved to {output_dir}")
+#     print("\nModel Performance:")
+#     print(f"MSE: {metrics['mse']:.4f}")
+#     print(f"MAE: {metrics['mae']:.4f}")
+#     print(f"R² Score: {metrics['r2']:.4f}")
 
 def save_model_for_fhe(model):
     """Save model parameters in FHE-compatible format."""
@@ -183,7 +183,7 @@ def save_model_for_fhe(model):
         model_params = convert_to_fhe(model)
         
         # Save model parameters
-        with open('../app/fhe_model_params.json', 'w') as f:
+        with open('app/fhe_model_params.json', 'w') as f:
             json.dump(model_params, f, indent=4)
         print("Model parameters saved to ../app/fhe_model_params.json")
         

@@ -50,3 +50,5 @@ ENV/
 *.bin
 app/sample
 app/fhe_model_params.json
+app.zip
+app/final_output.txt

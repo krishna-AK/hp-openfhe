@@ -10,7 +10,9 @@ class PolynomialActivation(nn.Module):
         self.degree = degree
         # Initialize coefficients for better scaling
         # For degree 2: [constant, linear, quadratic]
-        if degree == 2:
+        if degree == 1:
+            self.coefficients = nn.Parameter(torch.tensor([0.0, 1.0]))
+        elif degree == 2:
             self.coefficients = nn.Parameter(torch.tensor([0.0, 1.0, 0.01]))
         elif degree == 3:
             self.coefficients = nn.Parameter(torch.tensor([0.0, 1.0, 0.01, 0.001]))
@@ -53,7 +55,7 @@ def preprocess_features(X):
     return X
 
 class FHECompatibleNN(nn.Module):
-    def __init__(self, input_dim=13, hidden_dim=16):
+    def __init__(self, input_dim=13, hidden_dim=16, poly_degree=2):
         super(FHECompatibleNN, self).__init__()
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
@@ -71,7 +73,7 @@ class FHECompatibleNN(nn.Module):
         self.layer2.bias.data.fill_(91000.0)  # Typical house price in dataset
         
         # Polynomial activation with degree 2 (quadratic)
-        self.act1 = PolynomialActivation(degree=2)
+        self.act1 = PolynomialActivation(degree=poly_degree)
     
     def forward(self, x):
         x = self.layer1(x)
