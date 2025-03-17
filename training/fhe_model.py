@@ -23,7 +23,7 @@ class PolynomialActivation(nn.Module):
     
     def forward(self, x):
         # Clip input for stability
-        x = torch.clamp(x, -10, 10)
+        # x = torch.clamp(x, -1, 1)
         
         # Use Horner's method for polynomial evaluation
         result = self.coefficients[-1]  # Start with highest degree coefficient
@@ -55,30 +55,56 @@ def preprocess_features(X):
     return X
 
 class FHECompatibleNN(nn.Module):
-    def __init__(self, input_dim=13, hidden_dim=16, poly_degree=2):
+    def __init__(self, input_dim=13, hidden_dims=[], poly_degree=1):
         super(FHECompatibleNN, self).__init__()
         self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
+        self.hidden_dims = hidden_dims
+        self.num_layers = len(hidden_dims) + 1  # Including output layer
         
-        # First layer
-        self.layer1 = nn.Linear(input_dim, hidden_dim)
-        # Initialize with weights appropriate for the feature scale
-        self._init_weights(self.layer1, scale=1.0)
+        # Create layers dynamically
+        self.layers = nn.ModuleList()
         
-        # Second layer (output layer)
-        self.layer2 = nn.Linear(hidden_dim, 1)
-        # Initialize the final layer with weights appropriate for house price range
-        self._init_weights(self.layer2, scale=1000.0)  # Scale for house prices
-        # Initialize bias to a typical house price value
-        self.layer2.bias.data.fill_(91000.0)  # Typical house price in dataset
+        # Handle case with no hidden layers (direct input to output)
+        if len(hidden_dims) == 0:
+            # Direct connection from input to output
+            self.layers.append(nn.Linear(input_dim, 1))
+            self._init_weights(self.layers[0], scale=1000.0)  # Scale for house prices
+            # Initialize bias to a typical house price value
+            self.layers[0].bias.data.fill_(91000.0)  # Typical house price in dataset
+        else:
+            # Input layer to first hidden layer
+            self.layers.append(nn.Linear(input_dim, hidden_dims[0]))
+            self._init_weights(self.layers[0], scale=1.0)
+            
+            # Hidden layers
+            for i in range(1, len(hidden_dims)):
+                self.layers.append(nn.Linear(hidden_dims[i-1], hidden_dims[i]))
+                self._init_weights(self.layers[i], scale=1.0)
+            
+            # Output layer
+            self.layers.append(nn.Linear(hidden_dims[-1], 1))
+            self._init_weights(self.layers[-1], scale=1000.0)  # Scale for house prices
+            # Initialize bias to a typical house price value
+            self.layers[-1].bias.data.fill_(91000.0)  # Typical house price in dataset
         
-        # Polynomial activation with degree 2 (quadratic)
-        self.act1 = PolynomialActivation(degree=poly_degree)
+        # Polynomial activations for each hidden layer
+        self.activations = nn.ModuleList()
+        for _ in range(len(hidden_dims)):
+            self.activations.append(PolynomialActivation(degree=poly_degree))
     
     def forward(self, x):
-        x = self.layer1(x)
-        x = self.act1(x)
-        x = self.layer2(x)
+        # Handle case with no hidden layers
+        if len(self.hidden_dims) == 0:
+            # Direct connection from input to output (no activation)
+            return self.layers[0](x)
+        
+        # Pass through all hidden layers with activations
+        for i in range(len(self.hidden_dims)):
+            x = self.layers[i](x)
+            x = self.activations[i](x)
+        
+        # Output layer (no activation)
+        x = self.layers[-1](x)
         return x
     
     def _init_weights(self, layer, scale=1.0):
@@ -91,33 +117,40 @@ class FHECompatibleNN(nn.Module):
 
 def convert_to_fhe(model):
     """Convert trained model for FHE inference"""
-    # Ensure we're getting the correct shapes
-    layer1_weight = model.layer1.weight.data.tolist()  # [hidden_dim, input_dim]
-    layer1_bias = model.layer1.bias.data.tolist()      # [hidden_dim]
-    layer2_weight = model.layer2.weight.data.tolist()  # [1, hidden_dim]
-    layer2_bias = model.layer2.bias.data.tolist()      # [1]
+    # Extract weights and biases from all layers
+    weights = {}
+    poly_coeffs = {}
     
-    # Ensure layer2 weights and biases are correctly formatted
-    # They should be lists, not lists of lists
-    if isinstance(layer2_bias, list) and len(layer2_bias) > 0 and isinstance(layer2_bias[0], list):
-        layer2_bias = layer2_bias[0]  # Take the first element if it's a list of lists
+    # Process all layers
+    for i, layer in enumerate(model.layers):
+        layer_name = f"layer{i+1}"
+        weights[f"{layer_name}.weight"] = layer.weight.data.tolist()
+        weights[f"{layer_name}.bias"] = layer.bias.data.tolist()
     
-    # Make sure layer2_weight is a list with a single element (which is a list)
-    if not isinstance(layer2_weight[0], list):
-        layer2_weight = [layer2_weight]  # Wrap in a list if it's not already
+    # Process all activations
+    for i, activation in enumerate(model.activations):
+        poly_coeffs[f"act{i+1}"] = activation.coefficients.data.tolist()
     
-    # Get polynomial coefficients
-    poly_coeffs = model.act1.coefficients.data.tolist()
+    # Ensure output layer weights and biases are correctly formatted
+    output_layer_name = f"layer{len(model.layers)}"
+    output_weights = weights[f"{output_layer_name}.weight"]
+    output_bias = weights[f"{output_layer_name}.bias"]
+    
+    # Make sure output layer weights are a list with a single element (which is a list)
+    if not isinstance(output_weights[0], list):
+        weights[f"{output_layer_name}.weight"] = [output_weights]
+    
+    # Make sure output layer bias is a list, not a list of lists
+    if isinstance(output_bias, list) and len(output_bias) > 0 and isinstance(output_bias[0], list):
+        weights[f"{output_layer_name}.bias"] = output_bias[0]
     
     fhe_model = {
-        'weights': {
-            'layer1.weight': layer1_weight,
-            'layer1.bias': layer1_bias,
-            'layer2.weight': layer2_weight,
-            'layer2.bias': layer2_bias
-        },
-        'poly_coeffs': {
-            'act1': poly_coeffs
+        'weights': weights,
+        'poly_coeffs': poly_coeffs,
+        'architecture': {
+            'input_dim': model.input_dim,
+            'hidden_dims': model.hidden_dims,
+            'num_layers': model.num_layers
         }
     }
     return {'fhe_model': fhe_model} 

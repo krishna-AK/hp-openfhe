@@ -1,0 +1,81 @@
+{
+    "metrics": {
+        "mean_absolute_error": 57526.80950107006,
+        "mean_squared_error": 4585156271.098787,
+        "root_mean_squared_error": 67713.78198785523,
+        "r2_score": 0.37128595433108447,
+        "mean_absolute_percentage_error": 28.613713549688153
+    },
+    "test_cases": [
+        {
+            "test_case": "test_case_1.json",
+            "expected": 162400.0,
+            "predicted": 255208.39095186064,
+            "absolute_error": 92808.39095186064,
+            "percentage_error": 57.148023985135865
+        },
+        {
+            "test_case": "test_case_2.json",
+            "expected": 266700.0,
+            "predicted": 272110.8925376972,
+            "absolute_error": 5410.892537697218,
+            "percentage_error": 2.0288310977492383
+        },
+        {
+            "test_case": "test_case_3.json",
+            "expected": 259800.0,
+            "predicted": 219599.99731330771,
+            "absolute_error": 40200.002686692285,
+            "percentage_error": 15.473442142683712
+        },
+        {
+            "test_case": "test_case_4.json",
+            "expected": 320800.0,
+            "predicted": 217378.2763730777,
+            "absolute_error": 103421.72362692229,
+            "percentage_error": 32.23869190365408
+        },
+        {
+            "test_case": "test_case_5.json",
+            "expected": 115000.0,
+            "predicted": 208009.68579298674,
+            "absolute_error": 93009.68579298674,
+            "percentage_error": 80.87798764607543
+        },
+        {
+            "test_case": "test_case_6.json",
+            "expected": 235600.0,
+            "predicted": 295018.52064426674,
+            "absolute_error": 59418.52064426674,
+            "percentage_error": 25.220085163101334
+        },
+        {
+            "test_case": "test_case_7.json",
+            "expected": 312700.0,
+            "predicted": 274942.2321623737,
+            "absolute_error": 37757.76783762628,
+            "percentage_error": 12.074757863008085
+        },
+        {
+            "test_case": "test_case_8.json",
+            "expected": 147300.0,
+            "predicted": 124991.30248364195,
+            "absolute_error": 22308.69751635805,
+            "percentage_error": 15.145076385850679
+        },
+        {
+            "test_case": "test_case_9.json",
+            "expected": 108300.0,
+            "predicted": 127054.2131288258,
+            "absolute_error": 18754.213128825795,
+            "percentage_error": 17.316909629571374
+        },
+        {
+            "test_case": "test_case_10.json",
+            "expected": 357100.0,
+            "predicted": 254921.79971253528,
+            "absolute_error": 102178.20028746472,
+            "percentage_error": 28.613329680051724
+        }
+    ]
+}

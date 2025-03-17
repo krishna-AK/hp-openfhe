@@ -1,0 +1,19 @@
+{
+    "compilation_error": null,
+    "testcases": [
+        {
+            "scheme": "CKKS",
+            "runs": [
+                {
+                    "result": [
+                        127054.2131288258
+                    ],
+                    "expected_output": [
+                        108300.0
+                    ],
+                    "time": 2.5285942554473877
+                }
+            ]
+        }
+    ]
+}

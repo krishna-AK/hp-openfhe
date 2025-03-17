@@ -1,0 +1,44 @@
+{
+    "test_cases": [
+        {
+            "file": "test_case_1.json",
+            "expected_output": 162400.0
+        },
+        {
+            "file": "test_case_2.json",
+            "expected_output": 266700.0
+        },
+        {
+            "file": "test_case_3.json",
+            "expected_output": 259800.0
+        },
+        {
+            "file": "test_case_4.json",
+            "expected_output": 320800.0
+        },
+        {
+            "file": "test_case_5.json",
+            "expected_output": 115000.0
+        },
+        {
+            "file": "test_case_6.json",
+            "expected_output": 235600.0
+        },
+        {
+            "file": "test_case_7.json",
+            "expected_output": 312700.0
+        },
+        {
+            "file": "test_case_8.json",
+            "expected_output": 147300.0
+        },
+        {
+            "file": "test_case_9.json",
+            "expected_output": 108300.0
+        },
+        {
+            "file": "test_case_10.json",
+            "expected_output": 357100.0
+        }
+    ]
+}

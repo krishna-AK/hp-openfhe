@@ -8,6 +8,11 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 import matplotlib.pyplot as plt
+from torch.utils.data import DataLoader, TensorDataset
+import copy
+import torch
+import torch.nn as nn
+import torch.optim as optim
 import json
 import os
 import warnings
@@ -55,79 +60,135 @@ def prepare_data(X, y, scaler=None):
     
     return X, y, None  # No scaler needed
 
+
+
+
+
+
+
 def train_model(X, y, X_val, y_val, input_dim):
-    # Initialize model with appropriate hidden dimension
-    model = FHECompatibleNN(input_dim=input_dim, hidden_dim=8, poly_degree=2)
-    
+
+    batch_size=64
+    # Initialize model with appropriate hidden dimensions
+    hidden_dims = [13]  # Empty list means no hidden layers (linear model)
+    model = FHECompatibleNN(input_dim=input_dim, hidden_dims=hidden_dims, poly_degree=2)
+
     # Use a learning rate appropriate for the scale of house prices
-    optimizer = optim.Adam(model.parameters(), lr=0.01, weight_decay=0.0001)
-    
+    optimizer = optim.Adam(model.parameters(), lr=0.003, weight_decay=0.0001)
+
     # Use pure MSE loss for house price prediction
     criterion = nn.MSELoss()  # Pure MSE loss is better for regression
-    
+
     # Use a more patient scheduler
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode='min', factor=0.5, patience=30, verbose=True
     )
-    
+
+    # Create DataLoaders for training and validation
+    train_dataset = TensorDataset(X, y)
+    val_dataset = TensorDataset(X_val, y_val)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+
     # Training loop with more epochs
-    n_epochs = 2000
+    n_epochs = 5000
     best_r2 = -float('inf')
     best_model = None
-    early_stop_patience = 50
+    early_stop_patience = 200
     early_stop_counter = 0
     best_val_loss = float('inf')
-    
+
     for epoch in range(n_epochs):
         model.train()
-        optimizer.zero_grad()
-        
-        # Forward pass
-        outputs = model(X)
-        loss = criterion(outputs, y)
-        
-        # Backward pass and optimize
-        loss.backward()
-        # Use a moderate gradient clipping threshold
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
-        optimizer.step()
-        
+        train_loss = 0.0
+
+        # Mini-batch training
+        for batch_X, batch_y in train_loader:
+            optimizer.zero_grad()
+
+            # Forward pass
+            outputs = model(batch_X)
+            loss = criterion(outputs, batch_y)
+
+            # Backward pass and optimize
+            loss.backward()
+            # Use a moderate gradient clipping threshold
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
+            optimizer.step()
+
+            train_loss += loss.item() * batch_X.size(0)  # Accumulate loss for the batch
+
+        # Average training loss over all batches
+        train_loss /= len(train_loader.dataset)
+
         # Validation
         model.eval()
+        val_loss = 0.0
+        all_val_outputs = []
+        all_val_targets = []
+
         with torch.no_grad():
-            val_outputs = model(X_val)
-            val_loss = criterion(val_outputs, y_val)
-            r2_val = r2_score_torch(y_val, val_outputs)
-            
-            # Save the best model based on R² score
-            if r2_val > best_r2:
-                best_r2 = r2_val
-                best_model = copy.deepcopy(model)
-            
-            # # Early stopping based on validation loss
-            # if val_loss < best_val_loss:
-            #     best_val_loss = val_loss
-            #     early_stop_counter = 0
-            # else:
-            #     early_stop_counter += 1
-                
-            # if early_stop_counter >= early_stop_patience:
-            #     print(f"Early stopping at epoch {epoch}")
-            #     break
-            
-            if epoch % 10 == 0:
-                print(f'Epoch {epoch}: Train Loss: {loss.item():.4f}, Val Loss: {val_loss.item():.4f}, R² Score: {r2_val:.4f}')
-            
-            if epoch % 50 == 0:
-                print("\nSample predictions:")
-                for i in range(5):
-                    print(f"Predicted: {val_outputs[i].item():.2f}, Actual: {y_val[i].item():.2f}")
-                print()
-            
-            scheduler.step(val_loss)
-    
+            for batch_X_val, batch_y_val in val_loader:
+                val_outputs = model(batch_X_val)
+                loss = criterion(val_outputs, batch_y_val)
+                val_loss += loss.item() * batch_X_val.size(0)  # Accumulate loss for the batch
+
+                # Collect outputs and targets for R² calculation
+                all_val_outputs.append(val_outputs)
+                all_val_targets.append(batch_y_val)
+
+        # Average validation loss over all batches
+        val_loss /= len(val_loader.dataset)
+
+        # Concatenate all outputs and targets for R² calculation
+        all_val_outputs = torch.cat(all_val_outputs, dim=0)
+        all_val_targets = torch.cat(all_val_targets, dim=0)
+        r2_val = r2_score_torch(all_val_targets, all_val_outputs)
+
+        # Save the best model based on R² score
+        if r2_val > best_r2:
+            best_r2 = r2_val
+            best_model = copy.deepcopy(model)
+
+        # Early stopping based on validation loss
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            early_stop_counter = 0
+        else:
+            early_stop_counter += 1
+
+        if early_stop_counter >= early_stop_patience:
+            print(f"Early stopping at epoch {epoch}")
+            break
+
+        if epoch % 10 == 0:
+            print(f'Epoch {epoch}: Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, R² Score: {r2_val:.4f}')
+
+        if epoch % 50 == 0:
+            print("\nSample predictions:")
+            for i in range(min(5, len(all_val_outputs))):
+                print(f"Predicted: {all_val_outputs[i].item():.2f}, Actual: {all_val_targets[i].item():.2f}")
+            print()
+
+        scheduler.step(val_loss)
+
     # Return the best model based on validation R² score
     return best_model if best_model is not None else model
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 def plot_training_history(train_losses, val_losses):
     """Plot training and validation losses"""
@@ -190,9 +251,16 @@ def save_model_for_fhe(model):
         # Print model architecture summary
         print("\nModel Architecture Summary:")
         print(f"Input dimension: {model.input_dim}")
-        print(f"Hidden dimension: {model.hidden_dim}")
-        print(f"Activation: Polynomial (degree {model.act1.degree})")
-        print(f"Polynomial coefficients: {model.act1.coefficients.data.tolist()}")
+        print(f"Hidden dimensions: {model.hidden_dims}")
+        print(f"Number of layers: {model.num_layers}")
+        
+        # Print activation details if there are any hidden layers
+        if model.hidden_dims:
+            for i, activation in enumerate(model.activations):
+                print(f"Activation {i+1}: Polynomial (degree {activation.degree})")
+                print(f"Polynomial coefficients {i+1}: {activation.coefficients.data.tolist()}")
+        else:
+            print("Model type: Linear (no hidden layers or activations)")
         
     except Exception as e:
         print(f"Error saving model: {str(e)}")
